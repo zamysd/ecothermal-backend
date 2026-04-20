@@ -1,4 +1,6 @@
-// 🔥 HANDLE ERROR GLOBAL (biar tidak crash)
+"use strict";
+
+// 🔥 HANDLE ERROR GLOBAL
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err);
 });
@@ -6,6 +8,9 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION:', err);
 });
+
+// Gunakan Native Fetch Node.js 18+ (tidak perlu node-fetch)
+const nativeFetch = globalThis.fetch;
 
 // ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
 const SYSTEM_INSTRUCTION = \`
@@ -25,40 +30,38 @@ const CORS_HEADERS = {
 
 // ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 exports.chat = async (req, res) => {
+  // Set CORS for all responses
+  res.set(CORS_HEADERS);
+
   // Preflight
   if (req.method === 'OPTIONS') {
-    res.set(CORS_HEADERS).status(204).send('');
-    return;
+    return res.status(204).send('');
   }
 
   if (req.method !== 'POST') {
-    res.set(CORS_HEADERS).status(405).json({ error: 'Method Not Allowed' });
-    return;
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error("❌ API KEY MISSING");
-    res.set(CORS_HEADERS).status(500).json({ error: 'API key not configured on server.' });
-    return;
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { message, history } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      res.set(CORS_HEADERS).status(400).json({ error: 'Missing required field: message' });
-      return;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error("❌ API KEY MISSING");
+      return res.status(500).json({ error: 'API key not configured on server.' });
     }
 
-    // 🔥 FORMAT CONTENT UNTUK REST API GEMINI
+    const { message, history } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    // 🔥 FORMAT CONTENT UNTUK REST API GEMINI (termasuk Socratic logic bypass 400 error)
     const rawHistory = Array.isArray(history) ? history : [];
     let formattedContents = [];
     let expectedRole = 'user';
 
     for (const msg of rawHistory) {
       const msgRole = msg.isUser ? 'user' : 'model';
-
       if (msgRole === expectedRole && msg.text) {
         formattedContents.push({
           role: msgRole,
@@ -68,19 +71,15 @@ exports.chat = async (req, res) => {
       }
     }
 
-    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil tidak mendukung field systemInstruction secara native di semua region)
-    // Solusi: kita gabungkan system instruction ke pesan user/history PERTAMA
     if (formattedContents.length > 0) {
       formattedContents[0].parts[0].text = SYSTEM_INSTRUCTION + "\\n\\nContext User:\\n" + formattedContents[0].parts[0].text;
     } else {
-      // Jika history kosong, pesannya hanya 1
       formattedContents.push({
         role: 'user',
         parts: [{ text: SYSTEM_INSTRUCTION + "\\n\\nUser Question:\\n" + message }]
       });
     }
 
-    // Jika history terisi, kita masukkan message baru ke array contents
     if (formattedContents.length > 0 && formattedContents[0].parts[0].text !== (SYSTEM_INSTRUCTION + "\\n\\nUser Question:\\n" + message)) {
        formattedContents.push({
          role: 'user',
@@ -96,56 +95,43 @@ exports.chat = async (req, res) => {
       }
     };
 
-    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil) dengan RETRY SYSTEM!
     const url = \`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=\${apiKey}\`;
-    
+
+    const response = await nativeFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
     let data;
-    let success = false;
-    let lastErrorStatus = 500;
-
-    for (let i = 0; i < 3; i++) {
-        const apiResponse = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-
-        data = await apiResponse.json();
-
-        if (apiResponse.ok) {
-          success = true;
-          break;
-        }
-
-        lastErrorStatus = apiResponse.status;
-
-        // 503 Service Unavailable -> Google Server Overload
-        if (apiResponse.status === 503 || apiResponse.status === 429) {
-          console.log(\`⏳ [Retry \${i + 1}/3] Server overloaded (\${apiResponse.status}). Menunggu 1.5 detik...\`);
-          await new Promise(r => setTimeout(r, 1500));
-          continue;
-        }
-
-        // Error lain langsung lempar karena bukan masalah traffic
-        throw new Error(\`Gemini API Error: \${apiResponse.status} - \${JSON.stringify(data)}\`);
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      data = "Failed to parse JSON response from Google: " + parseError.message;
     }
 
-    if (!success) {
-        throw new Error(\`Gemini API Error: Gagal mendapatkan respon setelah percobaan. (Status terakhir: \${lastErrorStatus}) JSON: \${JSON.stringify(data)}\`);
+    // 🔥 HANDLE ERROR DARI GEMINI SECARA LANGSUNG
+    if (!response.ok) {
+      console.error("API Google menolak request:", response.status, data);
+      return res.status(500).json({
+        error: "Gemini API Error",
+        details: data,
+      });
     }
 
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, ada gangguan saat berpikir.";
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "AI did not return a response";
 
-    console.log("🤖 RESPONSE:", responseText);
-    res.set(CORS_HEADERS).status(200).json({ reply: responseText });
+    // ✅ PASTI RETURNING RESPONSE KE CLIENT
+    return res.status(200).json({ reply });
 
   } catch (error) {
-    console.error('🔥 GEMINI ERROR FULL:', error);
+    console.error("SERVER ERROR CRASHED:", error);
 
-    res.set(CORS_HEADERS).status(500).json({
-      error: 'Failed to get response from AI.',
+    // ❗ JANGAN BIARKAN TANPA RESPONSE
+    return res.status(500).json({
+      error: "Server crashed",
       details: error.message || String(error),
     });
   }
