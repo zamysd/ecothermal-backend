@@ -68,24 +68,27 @@ exports.chat = async (req, res) => {
       }
     }
 
-    // Pastikan tidak berakhir dengan user
-    if (
-      formattedContents.length > 0 &&
-      formattedContents[formattedContents.length - 1].role === 'user'
-    ) {
-      formattedContents.pop();
+    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil tidak mendukung field systemInstruction secara native di semua region)
+    // Solusi: kita gabungkan system instruction ke pesan user/history PERTAMA
+    if (formattedContents.length > 0) {
+      formattedContents[0].parts[0].text = SYSTEM_INSTRUCTION + "\n\nContext User:\n" + formattedContents[0].parts[0].text;
+    } else {
+      // Jika history kosong, pesannya hanya 1
+      formattedContents.push({
+        role: 'user',
+        parts: [{ text: SYSTEM_INSTRUCTION + "\n\nUser Question:\n" + message }]
+      });
     }
 
-    // Tambahkan pesan user yang baru
-    formattedContents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
+    // Jika history terisi, kita masukkan message baru ke array contents
+    if (formattedContents.length > 0 && formattedContents[0].parts[0].text !== (SYSTEM_INSTRUCTION + "\n\nUser Question:\n" + message)) {
+       formattedContents.push({
+         role: 'user',
+         parts: [{ text: message }]
+       });
+    }
 
     const payload = {
-      systemInstruction: {
-        parts: [{ text: SYSTEM_INSTRUCTION }]
-      },
       contents: formattedContents,
       generationConfig: {
         maxOutputTokens: 300,
