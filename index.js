@@ -83,7 +83,7 @@ exports.chat = async (req, res) => {
     });
 
     const payload = {
-      system_instruction: {
+      systemInstruction: {
         parts: [{ text: SYSTEM_INSTRUCTION }]
       },
       contents: formattedContents,
