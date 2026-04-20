@@ -1,5 +1,3 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
 // 🔥 HANDLE ERROR GLOBAL (biar tidak crash)
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err);
@@ -48,62 +46,73 @@ exports.chat = async (req, res) => {
   try {
     const { message, history } = req.body;
 
-    console.log("📩 REQUEST:", req.body);
-
     if (!message || typeof message !== 'string') {
       res.set(CORS_HEADERS).status(400).json({ error: 'Missing required field: message' });
       return;
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: SYSTEM_INSTRUCTION,
-    });
-
-    // 🔥 SAFE HISTORY
+    // 🔥 FORMAT CONTENT UNTUK REST API GEMINI
     const rawHistory = Array.isArray(history) ? history : [];
-
-    let formattedHistory = [];
+    let formattedContents = [];
     let expectedRole = 'user';
 
     for (const msg of rawHistory) {
       const msgRole = msg.isUser ? 'user' : 'model';
 
       if (msgRole === expectedRole && msg.text) {
-        formattedHistory.push({
+        formattedContents.push({
           role: msgRole,
           parts: [{ text: msg.text }],
         });
-
         expectedRole = expectedRole === 'user' ? 'model' : 'user';
       }
     }
 
-    // 🔥 FIX: pastikan tidak berakhir dengan user
+    // Pastikan tidak berakhir dengan user
     if (
-      formattedHistory.length > 0 &&
-      formattedHistory[formattedHistory.length - 1].role === 'user'
+      formattedContents.length > 0 &&
+      formattedContents[formattedContents.length - 1].role === 'user'
     ) {
-      formattedHistory.pop();
+      formattedContents.pop();
     }
 
-    console.log("🧠 FORMATTED HISTORY:", formattedHistory);
+    // Tambahkan pesan user yang baru
+    formattedContents.push({
+      role: 'user',
+      parts: [{ text: message }]
+    });
 
-    const chat = model.startChat({
-      history: formattedHistory,
+    const payload = {
+      system_instruction: {
+        parts: [{ text: SYSTEM_INSTRUCTION }]
+      },
+      contents: formattedContents,
       generationConfig: {
         maxOutputTokens: 300,
         temperature: 0.7,
+      }
+    };
+
+    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil)
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const apiResponse = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
       },
+      body: JSON.stringify(payload)
     });
 
-    const result = await chat.sendMessage(message);
-    const responseText = result.response.text();
+    const data = await apiResponse.json();
+
+    if (!apiResponse.ok) {
+        throw new Error(`Gemini API Error: ${apiResponse.status} - ${JSON.stringify(data)}`);
+    }
+
+    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, ada gangguan saat berpikir.";
 
     console.log("🤖 RESPONSE:", responseText);
-
     res.set(CORS_HEADERS).status(200).json({ reply: responseText });
 
   } catch (error) {
