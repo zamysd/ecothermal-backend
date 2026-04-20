@@ -97,7 +97,7 @@ exports.chat = async (req, res) => {
     };
 
     // 🔥 PANGGIL REST API LANGSUNG (v1 stabil)
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.0-pro:generateContent?key=${apiKey}`;
     
     const apiResponse = await fetch(url, {
       method: 'POST',
