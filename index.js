@@ -8,12 +8,12 @@ process.on('unhandledRejection', (err) => {
 });
 
 // ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
-const SYSTEM_INSTRUCTION = `
+const SYSTEM_INSTRUCTION = \`
 You are an AI Physics Tutor in a mobile learning application focused on Global Warming.
 Your role is to guide students through discussion using the Socratic method.
 You are NOT allowed to give direct answers.
 Always guide, ask, and scaffold thinking.
-`;
+\`;
 
 // ─── CORS HEADERS ────────────────────────────────────────────────────────────
 const CORS_HEADERS = {
@@ -71,17 +71,17 @@ exports.chat = async (req, res) => {
     // 🔥 PANGGIL REST API LANGSUNG (v1 stabil tidak mendukung field systemInstruction secara native di semua region)
     // Solusi: kita gabungkan system instruction ke pesan user/history PERTAMA
     if (formattedContents.length > 0) {
-      formattedContents[0].parts[0].text = SYSTEM_INSTRUCTION + "\n\nContext User:\n" + formattedContents[0].parts[0].text;
+      formattedContents[0].parts[0].text = SYSTEM_INSTRUCTION + "\\n\\nContext User:\\n" + formattedContents[0].parts[0].text;
     } else {
       // Jika history kosong, pesannya hanya 1
       formattedContents.push({
         role: 'user',
-        parts: [{ text: SYSTEM_INSTRUCTION + "\n\nUser Question:\n" + message }]
+        parts: [{ text: SYSTEM_INSTRUCTION + "\\n\\nUser Question:\\n" + message }]
       });
     }
 
     // Jika history terisi, kita masukkan message baru ke array contents
-    if (formattedContents.length > 0 && formattedContents[0].parts[0].text !== (SYSTEM_INSTRUCTION + "\n\nUser Question:\n" + message)) {
+    if (formattedContents.length > 0 && formattedContents[0].parts[0].text !== (SYSTEM_INSTRUCTION + "\\n\\nUser Question:\\n" + message)) {
        formattedContents.push({
          role: 'user',
          parts: [{ text: message }]
@@ -96,21 +96,44 @@ exports.chat = async (req, res) => {
       }
     };
 
-    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil)
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    // 🔥 PANGGIL REST API LANGSUNG (v1 stabil) dengan RETRY SYSTEM!
+    const url = \`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=\${apiKey}\`;
     
-    const apiResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+    let data;
+    let success = false;
+    let lastErrorStatus = 500;
 
-    const data = await apiResponse.json();
+    for (let i = 0; i < 3; i++) {
+        const apiResponse = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
 
-    if (!apiResponse.ok) {
-        throw new Error(`Gemini API Error: ${apiResponse.status} - ${JSON.stringify(data)}`);
+        data = await apiResponse.json();
+
+        if (apiResponse.ok) {
+          success = true;
+          break;
+        }
+
+        lastErrorStatus = apiResponse.status;
+
+        // 503 Service Unavailable -> Google Server Overload
+        if (apiResponse.status === 503 || apiResponse.status === 429) {
+          console.log(\`⏳ [Retry \${i + 1}/3] Server overloaded (\${apiResponse.status}). Menunggu 1.5 detik...\`);
+          await new Promise(r => setTimeout(r, 1500));
+          continue;
+        }
+
+        // Error lain langsung lempar karena bukan masalah traffic
+        throw new Error(\`Gemini API Error: \${apiResponse.status} - \${JSON.stringify(data)}\`);
+    }
+
+    if (!success) {
+        throw new Error(\`Gemini API Error: Gagal mendapatkan respon setelah percobaan. (Status terakhir: \${lastErrorStatus}) JSON: \${JSON.stringify(data)}\`);
     }
 
     const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, ada gangguan saat berpikir.";
