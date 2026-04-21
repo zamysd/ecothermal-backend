@@ -46,8 +46,8 @@ exports.chat = async (req, res) => {
   }
 
   try {
-    // API KEY FALLBACK
-    const apiKey = process.env.NVIDIA_API_KEY || "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";
+    // UPDATED API KEY FALLBACK
+    const apiKey = process.env.NVIDIA_API_KEY || "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";
     
     // Initialize OpenAI client for NVIDIA NIM
     const client = new OpenAI({
@@ -82,25 +82,24 @@ exports.chat = async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     const stream = await client.chat.completions.create({
-      model: "z-ai/glm4.7",
+      model: "openai/gpt-oss-20b", // UPDATED MODEL
       messages: messages,
       temperature: 1.0,
       top_p: 1.0,
       max_tokens: 4096,
-      chat_template_kwargs: {
-        enable_thinking: true,
-        clear_thinking: false
-      },
       stream: true,
     });
 
     // Stream the chunks to the client
     for await (const chunk of stream) {
+      const reasoning = chunk.choices[0]?.delta?.reasoning_content;
       const content = chunk.choices[0]?.delta?.content;
 
-      // Note: We intentionally extract but do NOT send reasoning_content 
-      // to the client, as per the instruction "Do NOT reveal reasoning steps".
-      // Internal thinking still occurs to improve response quality.
+      // Log reasoning to server console as per snippet intent, 
+      // but do NOT send to student per behavioral rules.
+      if (reasoning) {
+        process.stdout.write(reasoning);
+      }
       
       if (content) {
         // Send final content chunks
