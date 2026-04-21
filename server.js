@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { chat } = require('./index');
+// const { chat } = require('./index'); // Move inside handler for debugging
 
 const app = express();
 app.use(cors());
@@ -12,7 +12,10 @@ app.get('/', (req, res) => {
 });
 
 // chat endpoint
-app.post('/chat', (req, res) => chat(req, res));
+app.post('/chat', (req, res) => {
+  const { chat } = require('./index');
+  return chat(req, res);
+});
 
 // 🔥 WAJIB
 const PORT = process.env.PORT || 3000;
