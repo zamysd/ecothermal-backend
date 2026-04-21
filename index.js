@@ -10,8 +10,9 @@ process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION:', err);
 });
 
-// ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
-const SYSTEM_INSTRUCTION = `
+// ─── SYSTEM PROMPTS (ID & EN) ────────────────────────────────────────────────
+const PROMPTS = {
+  id: `
 You are an AI Physics Tutor using the Socratic method.
 
 IMPORTANT:
@@ -22,7 +23,20 @@ IMPORTANT:
 Always guide using questions, not direct answers.
 Use simple Bahasa Indonesia.
 Be concise and encouraging.
-`;
+`,
+  en: `
+You are an AI Physics Tutor using the Socratic method.
+
+IMPORTANT:
+- Do NOT reveal reasoning steps
+- Do NOT show analysis
+- ONLY give the final response to the student
+
+Always guide using questions, not direct answers.
+Use simple English.
+Be concise and encouraging.
+`
+};
 
 // ─── CORS HEADERS ────────────────────────────────────────────────────────────
 const CORS_HEADERS = {
@@ -46,7 +60,6 @@ exports.chat = async (req, res) => {
   }
 
   try {
-    // UPDATED API KEY FALLBACK
     const apiKey = process.env.NVIDIA_API_KEY || "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";
     
     // Initialize OpenAI client for NVIDIA NIM
@@ -55,16 +68,20 @@ exports.chat = async (req, res) => {
       baseURL: 'https://integrate.api.nvidia.com/v1',
     });
 
-    const { message, history } = req.body;
+    const { message, history, language } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
     }
 
+    // Select system instruction base on requested language (default to ID)
+    const lang = (language && PROMPTS[language]) ? language : 'id';
+    const systemPrompt = PROMPTS[lang];
+
     // Format content for NVIDIA API (OpenAI compatible)
     const rawHistory = Array.isArray(history) ? history : [];
     let messages = [
-      { role: "system", content: SYSTEM_INSTRUCTION }
+      { role: "system", content: systemPrompt }
     ];
 
     for (const msg of rawHistory) {
@@ -82,7 +99,7 @@ exports.chat = async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     const stream = await client.chat.completions.create({
-      model: "openai/gpt-oss-20b", // UPDATED MODEL
+      model: "openai/gpt-oss-20b",
       messages: messages,
       temperature: 1.0,
       top_p: 1.0,
@@ -95,14 +112,11 @@ exports.chat = async (req, res) => {
       const reasoning = chunk.choices[0]?.delta?.reasoning_content;
       const content = chunk.choices[0]?.delta?.content;
 
-      // Log reasoning to server console as per snippet intent, 
-      // but do NOT send to student per behavioral rules.
       if (reasoning) {
         process.stdout.write(reasoning);
       }
       
       if (content) {
-        // Send final content chunks
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
     }
