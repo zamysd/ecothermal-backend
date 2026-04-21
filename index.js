@@ -77,11 +77,9 @@ exports.chat = async (req, res) => {
       temperature: 1.0,
       top_p: 1.0,
       max_tokens: 4096,
-      extra_body: {
-        chat_template_kwargs: {
-          enable_thinking: true,
-          clear_thinking: false
-        }
+      chat_template_kwargs: {
+        enable_thinking: true,
+        clear_thinking: false
       }
     };
 
