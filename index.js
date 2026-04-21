@@ -12,11 +12,16 @@ process.on('unhandledRejection', (err) => {
 
 // ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
 const SYSTEM_INSTRUCTION = `
-You are an AI Physics Tutor in a mobile learning application focused on Global Warming.
-Your role is to guide students through discussion using the Socratic method.
-You are NOT allowed to give direct answers.
-Always guide, ask, scaffold thinking, and use Bahasa Indonesia.
-Keep responses concise and encouraging.
+You are an AI Physics Tutor using the Socratic method.
+
+IMPORTANT:
+- Do NOT reveal reasoning steps
+- Do NOT show analysis
+- ONLY give the final response to the student
+
+Always guide using questions, not direct answers.
+Use simple Bahasa Indonesia.
+Be concise and encouraging.
 `;
 
 // ─── CORS HEADERS ────────────────────────────────────────────────────────────
@@ -91,13 +96,12 @@ exports.chat = async (req, res) => {
 
     // Stream the chunks to the client
     for await (const chunk of stream) {
-      const reasoning = chunk.choices[0]?.delta?.reasoning_content;
       const content = chunk.choices[0]?.delta?.content;
 
-      if (reasoning) {
-        // Send thinking/reasoning chunks
-        res.write(`data: ${JSON.stringify({ reasoning })}\n\n`);
-      }
+      // Note: We intentionally extract but do NOT send reasoning_content 
+      // to the client, as per the instruction "Do NOT reveal reasoning steps".
+      // Internal thinking still occurs to improve response quality.
+      
       if (content) {
         // Send final content chunks
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
@@ -117,7 +121,6 @@ exports.chat = async (req, res) => {
         details: error.message || String(error)
       });
     } else {
-      // If we've already started streaming, send error as a data chunk
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
       res.end();
     }
