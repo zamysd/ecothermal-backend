@@ -8,7 +8,6 @@ process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION:', err);
 });
 
-// Use Native Fetch (Node 18+), no need for node-fetch
 const nativeFetch = globalThis.fetch;
 
 // ─── SYSTEM PROMPT ───────────────────────────────────────────────────────────
@@ -43,10 +42,10 @@ exports.chat = async (req, res) => {
   }
 
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.NVIDIA_API_KEY;
     if (!apiKey) {
-      console.error("❌ OPENROUTER_API_KEY MISSING");
-      return res.status(500).json({ error: 'OpenRouter API key not configured on server.' });
+      console.error("❌ NVIDIA_API_KEY MISSING");
+      return res.status(500).json({ error: 'NVIDIA API key not configured on server.' });
     }
 
     const { message, history } = req.body;
@@ -55,7 +54,7 @@ exports.chat = async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    // Prepare messages for OpenRouter (OpenAI compatible format)
+    // Format content for NVIDIA API (OpenAI compatible)
     const rawHistory = Array.isArray(history) ? history : [];
     let messages = [
       { role: "system", content: SYSTEM_INSTRUCTION }
@@ -68,40 +67,50 @@ exports.chat = async (req, res) => {
       });
     }
 
-    // Add current message
     messages.push({ role: "user", content: message });
 
-    const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
+    const url = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-    const response = await nativeFetch(openRouterUrl, {
+    const payload = {
+      model: "z-ai/glm4.7",
+      messages: messages,
+      temperature: 1.0,
+      top_p: 1.0,
+      max_tokens: 4096,
+      extra_body: {
+        chat_template_kwargs: {
+          enable_thinking: true,
+          clear_thinking: false
+        }
+      }
+    };
+
+    const response = await nativeFetch(url, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://ecothermal-tutor.up.railway.app",
-        "X-Title": "EcoThermal AI Tutor"
+        "Accept": "application/json"
       },
-      body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo", // Highly stable
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 400
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("OpenRouter API Error:", response.status, data);
+      console.error("NVIDIA API Error:", response.status, data);
       return res.status(500).json({
-        error: "OpenRouter API Error",
+        error: "NVIDIA API Error",
         details: data
       });
     }
 
-    const reply = data?.choices?.[0]?.message?.content || "No response received";
+    // Extract standard response content
+    const reply = data?.choices?.[0]?.message?.content || "AI did not return a response";
     
-    // ✅ Always return JSON with 'reply' key
+    // Note: reasoning_content is typically used internally by GLM 4.7 when enable_thinking is true.
+    // In a non-streaming response, choices[0].message.content is the final result.
+    
     return res.status(200).json({ reply });
 
   } catch (error) {
