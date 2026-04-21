@@ -42,7 +42,7 @@ exports.chat = async (req, res) => {
   }
 
   try {
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.NVIDIA_API_KEY || "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";
     if (!apiKey) {
       console.error("❌ NVIDIA_API_KEY MISSING");
       return res.status(500).json({ error: 'NVIDIA API key not configured on server.' });
