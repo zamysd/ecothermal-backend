@@ -2,7 +2,7 @@
   "name": "ecothermal-tutor-backend",
   "version": "1.0.0",
   "description": "Proxy backend for EcoThermal AI Physics Tutor",
-  "main": "index.js",
+  "main": "server.js",
   "engines": {
     "node": ">=18"
   },
@@ -11,8 +11,6 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "@google-cloud/functions-framework": "^3.0.0",
     "express": "^4.18.2",
     "cors": "^2.8.5"
   }
